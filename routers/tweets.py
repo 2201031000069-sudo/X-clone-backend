@@ -114,6 +114,17 @@ async def create_tweet(
     return await _tweet_to_response(tweet, user_id, db)
 
 
+@router.get("/bookmarks", response_model=list[TweetResponse])
+async def get_bookmarks(
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Tweet).join(Bookmark, Bookmark.tweet_id == Tweet.id).where(Bookmark.user_id == user_id).order_by(Tweet.created_at.desc())
+    )
+    return [await _tweet_to_response(t, user_id, db) for t in result.scalars().all()]
+
+
 @router.get("/{tweet_id}", response_model=TweetResponse)
 async def get_tweet(
     tweet_id: str,
