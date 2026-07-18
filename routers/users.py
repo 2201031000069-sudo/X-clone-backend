@@ -109,7 +109,7 @@ async def get_user_tweets(
 
     tweets_result = await db.execute(
         select(Tweet)
-        .where(Tweet.author_id == user.id, Tweet.reply_to_id.is_(None))
+        .where(Tweet.author_id == user.id, Tweet.reply_to_id.is_(None), Tweet.archived == False)
         .order_by(Tweet.created_at.desc())
     )
     tweets = tweets_result.scalars().all()

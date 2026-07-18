@@ -53,6 +53,7 @@ class Tweet(Base):
     location: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     todos: Mapped[dict] = mapped_column(JSON, default=list)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

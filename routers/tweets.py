@@ -4,7 +4,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import User, Tweet, Like, Retweet, Bookmark
+from models import User, Tweet, Like, Retweet, Bookmark, Follow
 from schemas import CreateTweetRequest, TweetResponse, UserResponse, TodoItem
 from auth import get_current_user
 
@@ -71,12 +71,26 @@ async def get_timeline(
 ):
     result = await db.execute(
         select(Tweet)
-        .where(Tweet.reply_to_id.is_(None))
+        .where(Tweet.reply_to_id.is_(None), Tweet.archived == False)
         .order_by(Tweet.created_at.desc())
         .limit(50)
     )
     tweets = result.scalars().all()
     return [await _tweet_to_response(t, user_id, db) for t in tweets]
+
+
+@router.get("/following", response_model=list[TweetResponse])
+async def get_following_timeline(
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Tweet).join(Follow, Follow.following_id == Tweet.author_id)
+        .where(Follow.follower_id == user_id, Tweet.reply_to_id.is_(None), Tweet.archived == False)
+        .order_by(Tweet.created_at.desc())
+        .limit(50)
+    )
+    return [await _tweet_to_response(t, user_id, db) for t in result.scalars().all()]
 
 
 @router.post("", response_model=TweetResponse, status_code=201)
@@ -120,7 +134,7 @@ async def get_bookmarks(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Tweet).join(Bookmark, Bookmark.tweet_id == Tweet.id).where(Bookmark.user_id == user_id).order_by(Tweet.created_at.desc())
+        select(Tweet).join(Bookmark, Bookmark.tweet_id == Tweet.id).where(Bookmark.user_id == user_id, Tweet.archived == False).order_by(Tweet.created_at.desc())
     )
     return [await _tweet_to_response(t, user_id, db) for t in result.scalars().all()]
 
@@ -146,7 +160,7 @@ async def get_replies(
 ):
     result = await db.execute(
         select(Tweet)
-        .where(Tweet.reply_to_id == tweet_id)
+        .where(Tweet.reply_to_id == tweet_id, Tweet.archived == False)
         .order_by(Tweet.created_at.asc())
     )
     tweets = result.scalars().all()
@@ -181,6 +195,23 @@ async def _toggle_interaction(
 
     await db.refresh(tweet)
     return await _tweet_to_response(tweet, user_id, db)
+
+
+@router.post("/{tweet_id}/archive", status_code=200)
+async def archive_tweet(
+    tweet_id: str,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Tweet).where(Tweet.id == tweet_id))
+    tweet = result.scalar_one_or_none()
+    if not tweet:
+        raise HTTPException(status_code=404, detail="Tweet not found")
+    if tweet.author_id != user_id:
+        raise HTTPException(status_code=403, detail="Not your tweet")
+    tweet.archived = True
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/{tweet_id}/like", response_model=TweetResponse)
