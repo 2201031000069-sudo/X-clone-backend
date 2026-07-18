@@ -98,5 +98,14 @@ class TrendResponse(BaseModel):
     posts: str
 
 
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    bio: Optional[str] = None
+    location: Optional[str] = None
+    website: Optional[str] = None
+    avatar: Optional[str] = None
+    banner: Optional[str] = None
+
+
 class ErrorResponse(BaseModel):
     detail: str
