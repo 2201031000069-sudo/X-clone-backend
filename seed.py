@@ -48,8 +48,6 @@ DEFAULT_PASSWORD = "password1235"
 
 
 async def seed():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
     await init_db()
 
     async with async_session() as session:

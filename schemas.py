@@ -4,14 +4,14 @@ import re
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
 
 class SignupRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=60)
     username: str = Field(..., min_length=3, max_length=20)
-    email: str
+    email: EmailStr
     password: str = Field(..., min_length=8)
 
     @field_validator("username")
@@ -50,7 +50,7 @@ class TokenResponse(BaseModel):
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: str
+    email: EmailStr
 
 
 class ResetPasswordRequest(BaseModel):

@@ -7,6 +7,8 @@ from database import get_db
 from models import User, Tweet, Like, Retweet, Bookmark, Follow
 from schemas import CreateTweetRequest, TweetResponse, UserResponse, TodoItem
 from auth import get_current_user
+from routers.notifications import create_notification
+from routers.ws import manager, _send_unread_count
 
 router = APIRouter(prefix="/tweets", tags=["tweets"])
 
@@ -122,8 +124,12 @@ async def create_tweet(
 
     if body.reply_to_id:
         parent_tweet.reply_count += 1
+        notification_data = await create_notification(db, parent_tweet.author_id, "reply", user_id, tweet_id=tweet.id, preview=body.content[:100])
 
     await db.commit()
+    if body.reply_to_id and notification_data:
+        await manager.send_to_user(parent_tweet.author_id, {"type": "new_notification", "data": notification_data})
+        await _send_unread_count(parent_tweet.author_id)
     await db.refresh(tweet)
     return await _tweet_to_response(tweet, user_id, db)
 
@@ -173,6 +179,7 @@ async def _toggle_interaction(
     db: AsyncSession,
     model: type[Like | Retweet | Bookmark],
     count_field: str,
+    notification_type: str | None = None,
 ) -> TweetResponse:
     result = await db.execute(select(Tweet).where(Tweet.id == tweet_id))
     tweet = result.scalar_one_or_none()
@@ -188,10 +195,16 @@ async def _toggle_interaction(
         await db.delete(interaction)
         setattr(tweet, count_field, getattr(tweet, count_field) - 1)
         await db.commit()
+        notification_data = None
     else:
         db.add(model(user_id=user_id, tweet_id=tweet_id))
         setattr(tweet, count_field, getattr(tweet, count_field) + 1)
+        notification_data = await create_notification(db, tweet.author_id, notification_type, user_id, tweet_id=tweet_id, preview=tweet.content[:100]) if notification_type else None
         await db.commit()
+
+    if notification_data:
+        await manager.send_to_user(tweet.author_id, {"type": "new_notification", "data": notification_data})
+        await _send_unread_count(tweet.author_id)
 
     await db.refresh(tweet)
     return await _tweet_to_response(tweet, user_id, db)
@@ -220,7 +233,7 @@ async def toggle_like(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _toggle_interaction(tweet_id, user_id, db, Like, "like_count")
+    return await _toggle_interaction(tweet_id, user_id, db, Like, "like_count", "like")
 
 
 @router.post("/{tweet_id}/retweet", response_model=TweetResponse)
@@ -229,7 +242,7 @@ async def toggle_retweet(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _toggle_interaction(tweet_id, user_id, db, Retweet, "retweet_count")
+    return await _toggle_interaction(tweet_id, user_id, db, Retweet, "retweet_count", "retweet")
 
 
 @router.post("/{tweet_id}/bookmark", response_model=TweetResponse)

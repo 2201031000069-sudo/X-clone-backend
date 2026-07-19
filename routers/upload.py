@@ -1,7 +1,9 @@
 import os
 import uuid
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+
+from auth import get_current_user
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -13,7 +15,11 @@ MAX_SIZE = 5 * 1024 * 1024
 
 
 @router.post("")
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(
+    request: Request,
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user),
+) -> JSONResponse:
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(status_code=400, detail="Only JPG, PNG, GIF, WebP allowed")
 
@@ -28,5 +34,6 @@ async def upload_image(file: UploadFile = File(...)):
     with open(filepath, "wb") as f:
         f.write(content)
 
-    url = f"http://localhost:8000/uploads/{filename}"
+    base = str(request.base_url).rstrip("/")
+    url = f"{base}/uploads/{filename}"
     return JSONResponse({"url": url})

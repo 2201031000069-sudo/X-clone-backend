@@ -7,6 +7,8 @@ from models import User, Tweet, Follow
 from schemas import UserResponse, TweetResponse, UpdateProfileRequest
 from auth import get_current_user
 from routers.tweets import _tweet_to_response
+from routers.notifications import create_notification
+from routers.ws import manager, _send_unread_count
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -83,6 +85,19 @@ async def get_suggestions(
     return [await _user_to_response(u, user_id, db) for u in users]
 
 
+@router.get("/id/{user_id}", response_model=UserResponse)
+async def get_user_by_id(
+    user_id: str,
+    current_user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return await _user_to_response(user, current_user_id, db)
+
+
 @router.get("/{username}", response_model=UserResponse)
 async def get_user(
     username: str,
@@ -147,7 +162,11 @@ async def follow_user(
     if source:
         source.following += 1
 
+    notification_data = await create_notification(db, target.id, "follow", current_user_id)
     await db.commit()
+    if notification_data:
+        await manager.send_to_user(target.id, {"type": "new_notification", "data": notification_data})
+        await _send_unread_count(target.id)
     await db.refresh(target)
     return await _user_to_response(target, current_user_id, db)
 

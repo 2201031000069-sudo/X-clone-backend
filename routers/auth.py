@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from google.oauth2 import id_token
@@ -12,6 +12,8 @@ from auth import hash_password, verify_password, create_access_token, generate_r
 import os
 import hashlib
 from datetime import datetime, timezone
+
+from ratelimit import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -36,7 +38,8 @@ def _user_to_response(u: User) -> UserResponse:
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def login(request: Request, body: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
@@ -51,7 +54,8 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/signup", response_model=TokenResponse, status_code=201)
-async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def signup(request: Request, body: SignupRequest, db: AsyncSession = Depends(get_db)):
     existing_email = await db.execute(select(User).where(User.email == body.email))
     if existing_email.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
@@ -123,7 +127,8 @@ async def google_auth(body: GoogleAuthRequest, db: AsyncSession = Depends(get_db
 
 
 @router.post("/forgot-password", status_code=200)
-async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("3/minute")
+async def forgot_password(request: Request, body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
@@ -135,14 +140,15 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     db.add(reset)
     await db.commit()
 
-    reset_link = f"http://localhost:5173/reset-password?token={token}"
-    print(f"  Reset link for {user.email}: {reset_link}")
+    from mailer import send_reset_email
+    await send_reset_email(user.email, token)
 
     return {"message": "If that email exists, we sent a reset link."}
 
 
 @router.post("/reset-password", status_code=200)
-async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def reset_password(request: Request, body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
     token_hash = hashlib.sha256(body.token.encode()).hexdigest()
 
     result = await db.execute(
